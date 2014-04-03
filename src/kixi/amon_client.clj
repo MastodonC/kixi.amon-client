@@ -1,11 +1,13 @@
 (ns kixi.amon-client
   (:require [clojure.data.json :as json]
-            [clojure.data.csv :as csv]
-            [clojure.java.io :as io]
-            [clj-http.client :as client]
-            [clojure.tools.logging :as log]))
+            [clj-http.client :as client]))
+
+;;
+;; low level GET & POST
+;;
 
 (defn get-data
+  "GET a JSON string from the given URL protected by basic HTTP Auth"
   ([url username password]
      (json/read-str
       (:body (client/get url {:basic-auth [username password]
@@ -21,6 +23,7 @@
       :key-fn keyword)))
 
 (defn post-data [url body username password]
+  "POST a JSON string to a given URL protected by basic HTTP Auth"
   (client/post url {:basic-auth [username password]
                     :accept :json
                     :content-type :json
@@ -29,26 +32,65 @@
                     :save-request? true
                     :debug-body true}))
 
-(defn devices [{:keys [entity username password] :as request}]
-  (let [url (format "https://metering-api-live.amee.com/3/entities/%s" entity)]
+;;
+;; Endpoint URL builders
+;;
+
+;; (def api-url "https://metering-api-live.amee.com/3") ; old url
+(def api-url "http://kixi-production-1162624566.us-west-2.elb.amazonaws.com/4") ; kixi url
+(def entities-url
+  (format "%s/entities" api-url))
+(defn entity-url [entity]
+  (format "%s/%s" entities-url entity))
+(defn entity-devices-url [entity]
+  (format "%s/devices" (entity-url entity)))
+(defn entity-device-url [entity device]
+  (format "%s/%s" (entity-devices-url entity) device))
+(defn entity-device-measurements-url [entity device]
+  (format "%s/measurements" (entity-device-url entity device)))
+
+
+;;
+;; high level functions
+;;
+
+;; ENTITIES
+
+(defn entity [{:keys [entity username password] :as request}]
+  (let [url (entity-url entity)]
     (get-data url username password)))
 
+;; FIXME this doesn't work the way the API doc describe it!
+(defn add-entity [{ :keys [body username password] :as request}]
+  (let [url (entities-url)]
+    (post-data url body username password)))
+
+;; DEVICES
+
 (defn device [{:keys [entity device username password] :as request}]
-  (let [url (format "https://metering-api-live.amee.com/3/entities/%s/devices/%s" entity device)]
+  (let [url (entity-device-url entity device)]
     (get-data url username password)))
 
 (defn add-device [{:keys [body username password] :as request}]
   (let [entity (:entityId body)
-        url (format "https://metering-api-live.amee.com/3/entities/%s/devices/" entity)]
+        url (entity-devices-url entity)]
     (post-data url body username password)))
 
+;; (defn add-devices [{:keys [entity metadata username password] :as request}]
+;;   (map (fn [d]
+;;          (add-device { :body (merge {:privacy "private" :entityId entity } d)
+;;                        :username username
+;;                        :password password}))
+;;        (metadata)))
+
+;; MEASUREMENTS
 (defn measurements [{:keys [entity device startDate endDate raw username password] :as request}]
-  (let [url (format "https://metering-api-live.amee.com/3/entities/%s/devices/%s/measurements" entity device)
+  (let [url (entity-device-measurements-url entity device)
         query (select-keys request [:startDate :endDate :raw])]
     (get-data url query username password)))
 
 (defn add-measurements [{:keys [entity device username password] :as request}]
-  (let [url (format "https://metering-api-live.amee.com/3/entities/%s/devices/%s/measurements" entity device)
+  (let [url (entity-device-measurements-url entity device)
         body (select-keys request [:measurements])]
     (post-data url body username password)))
 
