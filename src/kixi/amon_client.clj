@@ -37,7 +37,7 @@
 ;;
 
 ;; (def api-url "https://metering-api-live.amee.com/3") ; old url
-(def api-url "http://kixi-production-1162624566.us-west-2.elb.amazonaws.com/4") ; kixi url
+(def api-url "http://localhost:8000/4/") ; kixi url
 (def entities-url
   (format "%s/entities" api-url))
 (defn entity-url [entity]
