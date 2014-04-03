@@ -197,7 +197,7 @@
 ;; Edwins credentials: "edwin.carter@passivsystems.com" "yVRyh2L4yuMD"
 (comment
 (def batch-results (add-all-measurements
-                      "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv"
+                      "/Users/neale/workspace/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv"
                       (entity-devices-memoized "c2290395dbf9da2523e1805d45f1ddb69960d936" "edwin.carter@passivsystems.com" "yVRyh2L4yuMD")
                       "bd700d16-5d74-4569-8f4c-0262cb02f0c5"
                       "42kjOHljkb"))
