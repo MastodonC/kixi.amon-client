@@ -5,7 +5,8 @@
             [clojure.java.io :as io]
             [clojure.tools.logging :as log]
             [clj-time.format :as tf]
-            [clj-http.client :as http]))
+            [clj-http.client :as http]
+            [clojure.string :as string]))
 
 (def column-headings
   [{:description "Time"}
