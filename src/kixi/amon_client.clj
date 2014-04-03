@@ -62,7 +62,7 @@
 
 ;; FIXME this doesn't work the way the API doc describe it!
 (defn add-entity [{ :keys [body username password] :as request}]
-  (let [url (entities-url)]
+  (let [url entities-url]
     (post-data url body username password)))
 
 ;; DEVICES
