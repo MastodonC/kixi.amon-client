@@ -1,6 +1,6 @@
 (ns kixi.amon-client
   (:require [clojure.data.json :as json]
-            [clj-http.client :as client]))
+            [org.httpkit.client :as http]))
 
 ;;
 ;; low level GET & POST
@@ -9,28 +9,46 @@
 (defn get-data
   "GET a JSON string from the given URL protected by basic HTTP Auth"
   ([url username password]
+     ;(println "GET " url)
      (json/read-str
-      (:body (client/get url {:basic-auth [username password]
-                              :accept :json
-                              :content-type :json}))
-      :key-fn keyword))
-  ([url query username password]
-     (json/read-str
-      (:body (client/get url {:basic-auth [username password]
-                              :accept :json
-                              :content-type :json
-                              :query-params query}))
-      :key-fn keyword)))
-
-(defn post-data [url body username password]
-  "POST a JSON string to a given URL protected by basic HTTP Auth"
-  (client/post url {:basic-auth [username password]
+      (:body @(http/get url {:basic-auth [username password]
                     :accept :json
                     :content-type :json
-                    :form-params body
-                    :throw-exceptions false
-                    :save-request? true
-                    :debug-body true}))
+                    :keepalive 60000}
+                   ))))
+  ;; ([url query username password]
+  ;;    (json/read-str
+  ;;     (:body @(http/get url {:basic-auth [username password]
+  ;;                            :accept :json
+  ;;                            :content-type :json
+  ;;                            :query-params query
+  ;;                            :keepalive 60000}))
+  ;;     :key-fn keyword)))
+)
+
+(defn post-data
+  "POST a JSON string to a given URL protected by basic HTTP Auth"
+  ([url body username password]
+     (println "POST " url)
+     (http/post url {:basic-auth [username password]
+                     :accept :json
+                     :content-type :json
+                     :form-params body
+                     :throw-exceptions false
+                     :save-request? true
+                     :debug-body true
+                     :keepalive 60000}))
+  ([url body username password callback]
+     (println "POST " url)
+     (http/post url {:basic-auth [username password]
+                     :accept :json
+                     :content-type :json
+                     :form-params body
+                     :throw-exceptions false
+                     :save-request? true
+                     :debug-body true
+                     :keepalive 60000}
+                callback)))
 
 ;;
 ;; Endpoint URL builders
@@ -89,10 +107,10 @@
         query (select-keys request [:startDate :endDate :raw])]
     (get-data url query username password)))
 
-(defn add-measurements [{:keys [entity device username password] :as request}]
+(defn add-measurements [{:keys [entity device username password] :as request} callback]
   (let [url (entity-device-measurements-url entity device)
         body (select-keys request [:measurements])]
-    (post-data url body username password)))
+    (post-data url body username password callback)))
 
 (def amon-units
   [{:description "absoluteHumidity" :unit "g/Kg" :type "Number"}

@@ -5,7 +5,7 @@
             [clojure.java.io :as io]
             [clojure.tools.logging :as log]
             [clj-time.format :as tf]
-            [clj-http.client :as http]
+            [org.httpkit.client :as http]
             [clojure.string :as string]))
 
 (def column-headings
@@ -84,9 +84,9 @@
         (devices-metadata)))
 
 ;; FIXME this should return the devices metadata in the same fashion as entity-devices-metadata
-(defn add-entity-and-devices [property-code username password]
+(defn add-entity-and-devices [property-code project-id username password]
   (let [entity (re-find #"ies/(.+)$" (->
-                                     (client/add-entity {:body {:propertyCode property-code} :username username :password password })
+                                     (client/add-entity {:body {:propertyCode property-code :projectId project-id} :username username :password password })
                                      :body
                                      (json/read-str :key-fn keyword)
                                      :location))]
@@ -106,14 +106,15 @@
 (defn entity-devices
   "Retrieve the devices for a given entity"
   [entity username password]
-   (map
-    (fn [id] (client/device { :entity entity
-                              :device id
-                              :username username
-                              :password password }))
-    (:deviceIds (client/entity { :entity entity
-                                 :username username
-                                 :password password}))))
+  (let [device-ids (:deviceIds (client/entity {:entity entity
+                                                :username username
+                                                :password password }))
+        _ (println "Devices: " device-ids)
+        futures (map (fn [id] (client/device {:entity entity
+                                              :username username
+                                              :password password }))
+                     device-ids)]
+    (map (fn [device] @device) futures)))
 
 (defn entity-device-ids
   "Extracts only Device IDs and Description for a given entity"
@@ -177,21 +178,22 @@
 ;; TODO wrap map in a reduce that captures a seq of the errors,
 ;;   the start and end time of the run, the number of each type of measurement uploaded,
 ;;   the total number uploaded and the earliest and latest record timestamps
-(defn create-entity-and-add-measurements-from-file [measurement-file-name username password]
+(defn create-entity-and-add-measurements-from-file [measurement-file-name project-id username password]
   (with-open [r (io/reader measurement-file-name)]
-    (let [property-code (string/replace measurement-file-name #"/(.*)$" "$1")
-          devices (add-entity-and-devices property-code username password)
+    (let [property-code (string/replace measurement-file-name #".*/(.*)$" "$1")
+          devices (entity-devices-memoized "65c8940dbfcfd94ffe5ddfa0da4c040d51c065cf" username password) ; (add-entity-and-devices property-code project-id username password)
           msgs (mapcat
                 (fn [readings-row]
                   (measurement-row readings-row devices))
-                (take 100 (drop 0 (csv/read-csv r))))]
-      (http/with-connection-pool {:timeout 5 :threads 30 :insecure? false :default-per-route 30}
+                (take 10 (drop 0 (csv/read-csv r))))]
+      ; (http/with-connection-pool {:timeout 5 :threads 30 :insecure? false :default-per-route 30}
        (doall
         (map
          (fn [m] (-> (merge m {:username username :password password :propertyCode property-code})
                      client/add-measurements))
          msgs)))
-      )))
+    ; )
+    ))
 
 ;; (def batch-results (add-all-measurements "/Users/bld/Dropbox/heat pump data/D407T.csv" hp407 "bd700d16-5d74-4569-8f4c-0262cb02f0c5" "42kjOHljkb"))
 ;; Edwins credentials: "edwin.carter@passivsystems.com" "yVRyh2L4yuMD"
