@@ -6,48 +6,50 @@
 ;; low level GET & POST
 ;;
 
+(defn get-body [resp]
+  (json/read-str (:body resp)
+                 :key-fn keyword))
+
+(defn print-body [resp]
+  (println (get-body resp)))
+
+(defn http-options [username password]
+  {:basic-auth [username password]
+                    :accept :json
+                    :content-type :json
+                    :keepalive 60000})
+
+(defn async-get [url options]
+  (http/get url options))
+(defn async-post
+  ([url options]
+     (http/post url options))
+  ([url options callback]
+     (http/post url options callback)))
+
 (defn get-data
   "GET a JSON string from the given URL protected by basic HTTP Auth"
   ([url username password]
-     ;(println "GET " url)
-     (json/read-str
-      (:body @(http/get url {:basic-auth [username password]
-                    :accept :json
-                    :content-type :json
-                    :keepalive 60000}
-                   ))))
-  ;; ([url query username password]
-  ;;    (json/read-str
-  ;;     (:body @(http/get url {:basic-auth [username password]
-  ;;                            :accept :json
-  ;;                            :content-type :json
-  ;;                            :query-params query
-  ;;                            :keepalive 60000}))
-  ;;     :key-fn keyword)))
+     (get-body @(async-get url (http-options username password))))
+  ([url query username password]
+     (get-body @(async-get url (assoc (http-options username password) :query-params query))))
 )
 
 (defn post-data
   "POST a JSON string to a given URL protected by basic HTTP Auth"
   ([url body username password]
-     (println "POST " url)
-     (http/post url {:basic-auth [username password]
-                     :accept :json
-                     :content-type :json
-                     :form-params body
+     @(async-post url (assoc (http-options username password)
+                     :body (json/write-str body)
                      :throw-exceptions false
                      :save-request? true
-                     :debug-body true
-                     :keepalive 60000}))
+                     :debug-body true)))
+
   ([url body username password callback]
-     (println "POST " url)
-     (http/post url {:basic-auth [username password]
-                     :accept :json
-                     :content-type :json
-                     :form-params body
+     (async-post url (assoc (http-options username password)
+                     :body (json/write-str body)
                      :throw-exceptions false
                      :save-request? true
-                     :debug-body true
-                     :keepalive 60000}
+                     :debug-body true)
                 callback)))
 
 ;;
@@ -57,9 +59,9 @@
 ;; (def api-url "https://metering-api-live.amee.com/3") ; old url
 (def api-url "http://kixi-production-1162624566.us-west-2.elb.amazonaws.com/4") ; kixi url
 (def entities-url
-  (format "%s/entities" api-url))
+  (format "%s/entities/" api-url))
 (defn entity-url [entity]
-  (format "%s/%s" entities-url entity))
+  (format "%s%s" entities-url entity))
 (defn entity-devices-url [entity]
   (format "%s/devices" (entity-url entity)))
 (defn entity-device-url [entity device]
@@ -107,10 +109,13 @@
         query (select-keys request [:startDate :endDate :raw])]
     (get-data url query username password)))
 
-(defn add-measurements [{:keys [entity device username password] :as request} callback]
-  (let [url (entity-device-measurements-url entity device)
-        body (select-keys request [:measurements])]
-    (post-data url body username password callback)))
+(defn add-measurements [{:keys [entity device username password] :as request}]
+  (let [
+        url (entity-device-measurements-url entity device)
+        body (select-keys request [:measurements])
+        _ (println "\tDevice: " device)
+        ]
+    (post-data url body username password)))
 
 (def amon-units
   [{:description "absoluteHumidity" :unit "g/Kg" :type "Number"}

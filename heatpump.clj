@@ -108,21 +108,18 @@
   [entity username password]
   (let [device-ids (:deviceIds (client/entity {:entity entity
                                                 :username username
-                                                :password password }))
-        _ (println "Devices: " device-ids)
-        futures (map (fn [id] (client/device {:entity entity
-                                              :username username
-                                              :password password }))
-                     device-ids)]
-    (map (fn [device] @device) futures)))
+                                                :password password }))]
+    (map (fn [id] (client/device {:entity entity
+                                  :device id
+                                  :username username
+                                  :password password }))
+         device-ids)))
 
 (defn entity-device-ids
   "Extracts only Device IDs and Description for a given entity"
   [entity username password]
   (map (fn [ed] (select-keys ed [:deviceId :description]))
        (entity-devices entity username password)))
-
-
 
 (defn entity-devices-metadata
   "Merges the devices metadata with the proper device IDs for the given entity"
@@ -138,17 +135,74 @@
                     devices)))
        :entity entity))
    (devices-metadata))))
-
-;;(def hp407
-;;  (entity-devices-metadata "c2290395dbf9da2523e1805d45f1ddb69960d936" "alice" "password"))
 (def entity-devices-memoized (memoize entity-devices-metadata))
 
-(defn device-with-measurements [timestamp data {:keys [deviceId entity readings] :as metadata}]
+(defn device-with-measurement [timestamp data {:keys [deviceId entity readings] :as metadata}]
   (hash-map :device deviceId
             :entity entity
             :measurements [{:timestamp timestamp
                             :value data
                             :type (-> readings first :type)}]))
+
+(defn device-with-measurements
+  [timestamps data {:keys [deviceId entity readings] :as metadata}]
+  (hash-map :device deviceId
+            :entity entity
+            :measurements (map
+                           (fn [timestamp value]
+                             {:timestamp timestamp
+                              :value value
+                              :type (-> readings first :type)})
+                             timestamps
+                             data)))
+
+(def page-size 50)
+
+(defn lazy-paginate-csv
+  [csv-file]
+  (let [in-file (io/reader csv-file)
+        csv-seq (csv/read-csv in-file)
+        lazy-page (fn lazy-page [wrapped]
+               (lazy-seq
+                 (if-let [s (seq wrapped)]
+                   (cons (take page-size s) (lazy-page (drop page-size s)))
+                   (.close in-file))))]
+    (lazy-page csv-seq)))
+
+(defn process-measurements-page [page devices]
+  (let [[raw-timestamps & data] (apply map vector page)
+        timestamps (map (fn [raw-timestamp]
+                          (tf/unparse (tf/formatters :date-time)
+                                      (tf/parse (tf/formatter "dd/MM/yyyy HH:mm") raw-timestamp)))
+                        raw-timestamps)]
+  (doall (map
+          (partial device-with-measurements timestamps)
+            ;; (println "device: " (:deviceId device)
+            ;;          " data ->" (count data)
+            ;;          " tstamps -> " (count timestamps) "\n\n" )
+          data
+          devices))
+))
+
+
+(defn add-measurements-page [measurements username password]
+  (let [
+        _ (println "Adding page...")
+        ]
+    (dorun (map
+            (fn [m] (-> (merge m {:username username :password password })
+                        client/add-measurements))
+            measurements))))
+
+(defn read-file-in-pages [filename devices username password]
+  (doseq [page (lazy-paginate-csv filename)]
+    (add-measurements-page (process-measurements-page page devices) username password)
+    (println "\t... page added")
+))
+
+;; (time (read-file-in-pages  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv" (entity-devices-memoized "5086aff9126038d35fc6f9887e1f0479c7b63ed9" "alice" "password") "alice" "password")) 
+
+;;;;
 
 (defn timestamped-readings
   "Takes a raw row from the csv and turns it into a measurements map."
@@ -156,12 +210,11 @@
   (let [[raw-timestamp & data] row
         timestamp (tf/unparse (tf/formatters :date-time)
                               (tf/parse (tf/formatter "dd/MM/yyyy HH:mm") raw-timestamp))]
-    (map (partial device-with-measurements timestamp)
+    (map (partial device-with-measurement timestamp)
          data
          devices-with-metadata)))
 
 (defn has-value? [m]
-  ;(println "Has Value? " m)
   (when (not-empty (get-in m [:measurements 0 :value]))
     m))
 
@@ -172,13 +225,12 @@
         (keep has-value?)))
 
 
-
 ;; "/Users/bld/Dropbox/heat pump data/D407T.csv"
 ;; FIXME put in drop/take paging
 ;; TODO wrap map in a reduce that captures a seq of the errors,
 ;;   the start and end time of the run, the number of each type of measurement uploaded,
 ;;   the total number uploaded and the earliest and latest record timestamps
-(defn create-entity-and-add-measurements-from-file [measurement-file-name project-id username password]
+(defn add-measurements-from-file [measurement-file-name project-id username password]
   (with-open [r (io/reader measurement-file-name)]
     (let [property-code (string/replace measurement-file-name #".*/(.*)$" "$1")
           devices (entity-devices-memoized "65c8940dbfcfd94ffe5ddfa0da4c040d51c065cf" username password) ; (add-entity-and-devices property-code project-id username password)
@@ -186,14 +238,8 @@
                 (fn [readings-row]
                   (measurement-row readings-row devices))
                 (take 10 (drop 0 (csv/read-csv r))))]
-      ; (http/with-connection-pool {:timeout 5 :threads 30 :insecure? false :default-per-route 30}
-       (doall
-        (map
-         (fn [m] (-> (merge m {:username username :password password :propertyCode property-code})
-                     client/add-measurements))
-         msgs)))
-    ; )
-    ))
+      (add-measurements-page msgs username password)
+    )))
 
 ;; (def batch-results (add-all-measurements "/Users/bld/Dropbox/heat pump data/D407T.csv" hp407 "bd700d16-5d74-4569-8f4c-0262cb02f0c5" "42kjOHljkb"))
 ;; Edwins credentials: "edwin.carter@passivsystems.com" "yVRyh2L4yuMD"
