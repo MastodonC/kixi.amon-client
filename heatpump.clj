@@ -196,11 +196,11 @@
     (println "\t... page added")
 ))
 
-;; (time (read-file-in-pages  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv" (entity-devices-memoized "ce8bccdfc14a678783c52993d2effde4c269a14d" "alice" "password") "alice" "password")) 
+;; (time (update-measurement-file-in-pages  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv" (entity-devices-memoized "ce8bccdfc14a678783c52993d2effde4c269a14d" "alice" "password") "alice" "password")) 
 ;; async posts stats:
 ;; - 3200 writes/seq in cass
 ;; - 10000 rows (* 58 devices) in 9'20"
-;; notes: with 10k rows, it's losing ~20% of the rows (timeout?)
+;; - 70000 rows (* 58 devices) in 
 ;;
 ;; TODO
 
