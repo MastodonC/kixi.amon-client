@@ -78,6 +78,7 @@
 
 
 (defn add-devices [entity username password]
+  "Adds all devices specified in devices-metadata for a given entity"
   (map (fn [d]
           (client/add-device
            {:body (merge {:privacy "private" :entityId entity} d)
@@ -93,12 +94,6 @@
                                      :location))]
     (add-devices entity username password)))
 
-;; (defn device-id
-;;   "Extracts device identfier maps from the URL of the responses"
-;;   [resp]
-;;   (let [[_ entity device] (re-find #"ies/(.+)/devices/(.+)$"
-;;                                    (-> resp :body (json/read-str :key-fn keyword) :location))]
-;;     {:entity entity :device device}))
 (defn device-id
   "Extracts device identifier maps from the devices with metadata aggregate"
   [device-with-metadata]
@@ -138,14 +133,8 @@
    (devices-metadata))))
 (def entity-devices-memoized (memoize entity-devices-metadata))
 
-(defn device-with-measurement [timestamp data {:keys [deviceId entity readings] :as metadata}]
-  (hash-map :device deviceId
-            :entity entity
-            :measurements [{:timestamp timestamp
-                            :value data
-                            :type (-> readings first :type)}]))
-
 (defn device-with-measurements
+  "Builds a device with measurements request"
   [timestamps data {:keys [deviceId entity readings] :as metadata}]
   (hash-map :device deviceId
             :entity entity
@@ -160,6 +149,7 @@
 (def page-size 50)
 
 (defn lazy-paginate-csv
+  "Lazily paginate through a CSV file"
   [csv-file]
   (let [in-file (io/reader csv-file)
         csv-seq (csv/read-csv in-file)
@@ -171,6 +161,7 @@
     (lazy-page csv-seq)))
 
 (defn process-measurements-page [page devices]
+  "Builds a vector of devices with measurements form the given page"
   (let [[raw-timestamps & data] (apply map vector page)
         timestamps (map (fn [raw-timestamp]
                           (tf/unparse (tf/formatters :date-time)
@@ -178,15 +169,13 @@
                         raw-timestamps)]
   (doall (map
           (partial device-with-measurements timestamps)
-            ;; (println "device: " (:deviceId device)
-            ;;          " data ->" (count data)
-            ;;          " tstamps -> " (count timestamps) "\n\n" )
           data
           devices))
 ))
 
 
 (defn add-measurements-page [measurements username password]
+  "asynchronously POST the measurements for one page, then wait for the threads to join again"
   (let [c (chan)
         res (atom [])
         _ (println "Adding page...")
@@ -200,13 +189,14 @@
       @res)))
 
 
-(defn read-file-in-pages [filename devices username password]
+(defn upload-measurement-file-in-pages [filename devices username password]
+  "Paginates through the file and uploads the processed pages"
   (doseq [page (lazy-paginate-csv filename)]
     (add-measurements-page (process-measurements-page page devices) username password)
     (println "\t... page added")
 ))
 
-;; (time (read-file-in-pages  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv" (entity-devices-memoized "5086aff9126038d35fc6f9887e1f0479c7b63ed9" "alice" "password") "alice" "password")) 
+;; (time (read-file-in-pages  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv" (entity-devices-memoized "ce8bccdfc14a678783c52993d2effde4c269a14d" "alice" "password") "alice" "password")) 
 ;; async posts stats:
 ;; - 3200 writes/seq in cass
 ;; - 10000 rows (* 58 devices) in 9'20"
