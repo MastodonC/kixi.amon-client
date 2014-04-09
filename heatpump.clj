@@ -190,13 +190,15 @@
   (let [c (chan)
         res (atom [])
         _ (println "Adding page...")
-        ]
+        pagesize (count measurements)]
     (doseq [m measurements]
       (-> (merge m {:username username :password password })
           (client/add-measurements c)))
 
-    (doseq [_ (<!! c)]
-        (println "Request completed"))))
+    (doseq [_ (range 1 pagesize)]
+      (swap! res conj (<!! c))
+      (println "Request thread completed")
+      @res)))
 
 
 (defn read-file-in-pages [filename devices username password]
@@ -209,52 +211,9 @@
 ;; async posts stats:
 ;; - 3200 writes/seq in cass
 ;; - 10000 rows (* 58 devices) in 9'20"
+;; notes: with 10k rows, it's losing ~20% of the rows (timeout?)
+;;
+;; TODO
+
 
 ;;;;
-
-(defn timestamped-readings
-  "Takes a raw row from the csv and turns it into a measurements map."
-  [row devices-with-metadata]
-  (let [[raw-timestamp & data] row
-        timestamp (tf/unparse (tf/formatters :date-time)
-                              (tf/parse (tf/formatter "dd/MM/yyyy HH:mm") raw-timestamp))]
-    (map (partial device-with-measurement timestamp)
-         data
-         devices-with-metadata)))
-
-(defn has-value? [m]
-  (when (not-empty (get-in m [:measurements 0 :value]))
-    m))
-
-(defn measurement-row
-  "Creates a vector measurment maps ready to be posted to embed per csv row w/o blanks."
-  [readings-row devices-with-metadata]
-  (->>  (timestamped-readings readings-row devices-with-metadata)
-        (keep has-value?)))
-
-
-;; "/Users/bld/Dropbox/heat pump data/D407T.csv"
-;; FIXME put in drop/take paging
-;; TODO wrap map in a reduce that captures a seq of the errors,
-;;   the start and end time of the run, the number of each type of measurement uploaded,
-;;   the total number uploaded and the earliest and latest record timestamps
-(defn add-measurements-from-file [measurement-file-name project-id username password]
-  (with-open [r (io/reader measurement-file-name)]
-    (let [property-code (string/replace measurement-file-name #".*/(.*)$" "$1")
-          devices (entity-devices-memoized "65c8940dbfcfd94ffe5ddfa0da4c040d51c065cf" username password) ; (add-entity-and-devices property-code project-id username password)
-          msgs (mapcat
-                (fn [readings-row]
-                  (measurement-row readings-row devices))
-                (take 10 (drop 0 (csv/read-csv r))))]
-      (add-measurements-page msgs username password)
-    )))
-
-;; (def batch-results (add-all-measurements "/Users/bld/Dropbox/heat pump data/D407T.csv" hp407 "bd700d16-5d74-4569-8f4c-0262cb02f0c5" "42kjOHljkb"))
-;; Edwins credentials: "edwin.carter@passivsystems.com" "yVRyh2L4yuMD"
-(comment
-(def batch-results (add-all-measurements
-                      "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv"
-                      (entity-devices-memoized "c2290395dbf9da2523e1805d45f1ddb69960d936" "edwin.carter@passivsystems.com" "yVRyh2L4yuMD")
-                      "bd700d16-5d74-4569-8f4c-0262cb02f0c5"
-                      "42kjOHljkb"))
-)
