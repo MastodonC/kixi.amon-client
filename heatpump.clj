@@ -197,7 +197,6 @@
 
     (doseq [_ (range 1 pagesize)]
       (swap! res conj (<!! c))
-      (println "Request thread completed")
       @res)))
 
 

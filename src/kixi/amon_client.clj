@@ -114,7 +114,6 @@
   (let [
         url (entity-device-measurements-url entity device)
         body (select-keys request [:measurements])
-        _ (println "\tDevice: " device)
         ]
     (post-data url body username password result)))
 
