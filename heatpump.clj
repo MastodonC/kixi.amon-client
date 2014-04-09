@@ -206,6 +206,9 @@
 ))
 
 ;; (time (read-file-in-pages  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv" (entity-devices-memoized "5086aff9126038d35fc6f9887e1f0479c7b63ed9" "alice" "password") "alice" "password")) 
+;; async posts stats:
+;; - 3200 writes/seq in cass
+;; - 10000 rows (* 58 devices) in 9'20"
 
 ;;;;
 
