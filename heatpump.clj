@@ -6,7 +6,8 @@
             [clojure.tools.logging :as log]
             [clj-time.format :as tf]
             [org.httpkit.client :as http]
-            [clojure.string :as string]))
+            [clojure.string :as string]
+            [clojure.core.async :refer [chan >! <! go <!!]]))
 
 (def column-headings
   [{:description "Time"}
@@ -186,13 +187,17 @@
 
 
 (defn add-measurements-page [measurements username password]
-  (let [
+  (let [c (chan)
+        res (atom [])
         _ (println "Adding page...")
         ]
-    (dorun (map
-            (fn [m] (-> (merge m {:username username :password password })
-                        client/add-measurements))
-            measurements))))
+    (doseq [m measurements]
+      (-> (merge m {:username username :password password })
+          (client/add-measurements c)))
+
+    (doseq [_ (<!! c)]
+        (println "Request completed"))))
+
 
 (defn read-file-in-pages [filename devices username password]
   (doseq [page (lazy-paginate-csv filename)]

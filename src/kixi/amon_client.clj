@@ -1,6 +1,7 @@
 (ns kixi.amon-client
   (:require [clojure.data.json :as json]
-            [org.httpkit.client :as http]))
+            [org.httpkit.client :as http]
+            [clojure.core.async :refer [chan >! <! go <!!]]))
 
 ;;
 ;; low level GET & POST
@@ -24,8 +25,8 @@
 (defn async-post
   ([url options]
      (http/post url options))
-  ([url options callback]
-     (http/post url options callback)))
+  ([url options result]
+     (http/post url options #(go (>! result %)))))
 
 (defn get-data
   "GET a JSON string from the given URL protected by basic HTTP Auth"
@@ -44,13 +45,13 @@
                      :save-request? true
                      :debug-body true)))
 
-  ([url body username password callback]
+  ([url body username password result]
      (async-post url (assoc (http-options username password)
                      :body (json/write-str body)
                      :throw-exceptions false
                      :save-request? true
                      :debug-body true)
-                callback)))
+                result)))
 
 ;;
 ;; Endpoint URL builders
@@ -63,11 +64,11 @@
 (defn entity-url [entity]
   (format "%s%s" entities-url entity))
 (defn entity-devices-url [entity]
-  (format "%s/devices" (entity-url entity)))
+  (format "%s/devices/" (entity-url entity)))
 (defn entity-device-url [entity device]
-  (format "%s/%s" (entity-devices-url entity) device))
+  (format "%s%s" (entity-devices-url entity) device))
 (defn entity-device-measurements-url [entity device]
-  (format "%s/measurements" (entity-device-url entity device)))
+  (format "%s/measurements/" (entity-device-url entity device)))
 
 
 ;;
@@ -109,13 +110,13 @@
         query (select-keys request [:startDate :endDate :raw])]
     (get-data url query username password)))
 
-(defn add-measurements [{:keys [entity device username password] :as request}]
+(defn add-measurements [{:keys [entity device username password] :as request} result]
   (let [
         url (entity-device-measurements-url entity device)
         body (select-keys request [:measurements])
         _ (println "\tDevice: " device)
         ]
-    (post-data url body username password)))
+    (post-data url body username password result)))
 
 (def amon-units
   [{:description "absoluteHumidity" :unit "g/Kg" :type "Number"}
