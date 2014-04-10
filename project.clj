@@ -12,4 +12,4 @@
                  [org.clojure/data.json "0.2.4"]
                  [org.clojure/tools.logging "0.2.6"]
                  [org.slf4j/slf4j-api "1.7.5"]]
-  :jvm-opts ["-Xmx8192m" "-Xss180k"])
+  :jvm-opts ["-Xmx8192m" "-Xss280k"])
