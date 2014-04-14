@@ -110,10 +110,12 @@
         query (select-keys request [:startDate :endDate :raw])]
     (get-data url query username password)))
 
-(defn add-measurements [{:keys [entity device username password] :as request} result]
-  (let [
-        url (entity-device-measurements-url entity device)
-        body (select-keys request [:measurements])
-        ]
-    (post-data url body username password result)))
-
+(defn add-measurements
+  ([{:keys [entity device measurements username password] :as request} result]
+     (let [url (entity-device-measurements-url entity device)]
+       (s/validate Measurements measurements)
+       (post-data url measurements username password result)))
+  ([{:keys [entity device measurements username password] :as request}]
+     (let [url (entity-device-measurements-url entity device)]
+       (s/validate Measurements measurements)
+       (post-data url measurements username password))))
