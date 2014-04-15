@@ -3,19 +3,19 @@
             [org.httpkit.client :as http]
             [clojure.core.async :refer [chan >! <! go <!!]]
             [schema.core :as s]
+            [clojure.tools.logging :as log]
             [clj-time.format :as tf]))
 
 ;;
 ;; low level GET & POST
 ;;
 
-(defn get-body [resp]
+(defn get-body [{:keys [body] :as resp}]
   (try 
-    (json/read-str (:body resp)
+    (json/read-str body
                    :key-fn keyword)
     (catch Exception e
-      (println "Caught an exception parsing the body: " e)
-      (println "Response: " resp))))
+      (log/errorf e "Caught an exception parsing the body: %s" body))))
 
 (defn print-body [resp]
   (println (get-body resp)))
