@@ -8,6 +8,7 @@
             [clojure.tools.logging :as log]
             [clojure.core.async :refer [chan >! <! go <!!]]
             [schema.core :as s]
+            [kixi.ifore-schema :as is]
             [clj-time.format :as tf]))
 
 
@@ -27,38 +28,44 @@
   (log/warnf "Problem Row [%s]" row)
   nil)
 
+(defn handle-broken-row [row validation-errors validator]
+  (log/debugf "Row Length: %s Validator Length: %s validator: %s"
+              (count row) (count validator) (s/explain validator))
+  (log/warnf "Errors: %s Problem Row Below:%n%s" (prn-str validation-errors) row)
+  nil)
+
 ;; Assumes that there is only one set of readings per device
-(defn enrich-measurement [device-definition time-idx measurement-idx row]
-  (let [type (get-in device-definition [:readings 0 :type])
-        timestamp (clean-timestamp (nth row time-idx))
-        row-count (count row)]
-    (if (< measurement-idx row-count)
-      (hash-map :type type :timestamp timestamp :value (nth row measurement-idx))
-      (handle-short-row time-idx measurement-idx row-count row))))
+(defn enrich-measurement [device-definition validator time-idx measurement-idx row]
+  (let [validation-errors (s/check validator row)]
+    (if validation-errors
+      (handle-broken-row row validation-errors validator)
+      (let [type      (get-in device-definition [:readings 0 :type])
+            timestamp (clean-timestamp (nth row time-idx))]
+        (try
+          (hash-map :type type :timestamp timestamp :value (nth row measurement-idx))
+          (catch Throwable t
+            (log/errorf t "Throwing looking for time-idx %s measurement-idx %s on a %s length row [%s]." time-idx measurement-idx (count row) row)
+            (throw t)))))))
 
 ;; device comes back from the API and assumes only one sensor per device
 (defn csv->measurements
-  [device time-key header rows]
-  (let [description (:description device)
+  [device time-key header validator rows]
+  (let [description       (:description device)
         device-definition ((keyword description) d/device-definition-map)
-        time-idx (.indexOf header time-key)
-        measurement-idx (.indexOf header description)]
-    (log/debugf "Index of measurement: %s" measurement-idx)
-    (log/debugf "Index of time: %s" time-idx)
-    (keep #(enrich-measurement device-definition time-idx measurement-idx %) rows)))
+        time-idx          (.indexOf header time-key)
+        measurement-idx   (.indexOf header description)]
+    (keep #(enrich-measurement device-definition validator time-idx measurement-idx %) rows)))
 
 (defn file->amon [file-name entity username password]
-  (log/infof "Processing: %s" file-name)
   (with-open [r (io/reader file-name)]
+    (org.slf4j.MDC/put "file.amon" (.getName file-name))
     (let [creds                  {:username username :password password}
-          rows                   (csv/read-csv r)
-          header                 (first rows)
-          data                   (drop 1 rows)
+          [header & data]        (csv/read-csv r)
+          validator              (is/validator header)
           measurement-partitions (for [partition (partition-all 100 data)
-                                       device (client/devices (merge creds {:entity entity}))]
-                                   {:device (:id device)
-                                    :measurements {:measurements (csv->measurements device "Date Time" header partition)}})]
-      (org.slf4j.MDC/put "file.amon" (.getName file-name))
+                                       device    (client/devices (merge creds {:entity entity}))]
+                                   {:device       (:id device)
+                                    :measurements {:measurements (csv->measurements device "Date Time" header validator partition)}})]
       (try 
         (doseq [p (pmap
                    #(client/add-measurements
