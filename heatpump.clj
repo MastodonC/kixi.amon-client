@@ -87,12 +87,15 @@
 
 ;; FIXME this should return the devices metadata in the same fashion as entity-devices-metadata
 (defn add-entity-and-devices [property-code project-id username password]
-  (let [entity (re-find #"ies/(.+)$" (->
-                                     (client/add-entity {:body {:propertyCode property-code :projectId project-id} :username username :password password })
-                                     :body
-                                     (json/read-str :key-fn keyword)
-                                     :location))]
-    (add-devices entity username password)))
+  (let [entity (nth (re-find #"ies/(.+)$"
+                             (->
+                              (client/add-entity {:body {:propertyCode property-code :projectId project-id} :username username :password password })
+                              :body
+                              (json/read-str :key-fn keyword)
+                              :location))
+                    1)]
+    (add-devices entity username password)
+    entity))
 
 (defn device-id
   "Extracts device identifier maps from the devices with metadata aggregate"
@@ -196,13 +199,52 @@
     (println "\t... page added")
 ))
 
-;; (time (update-measurement-file-in-pages  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D407T_head.csv" (entity-devices-memoized "ce8bccdfc14a678783c52993d2effde4c269a14d" "alice" "password") "alice" "password")) 
+(defn add-entity-and-upload-measurements [filename project-id username password]
+  "Create the entity and its devices, and uploads the measurements from the file"
+  (let [property-code (nth (re-find #"/([^\/]+)\.csv$" filename) 1)
+        _ (println "Creating the entity for " property-code)
+        entity-id (add-entity-and-devices property-code project-id username password)
+        _ (println "Created entity with id " entity-id)]
+    (println "Adding measurements for " property-code " devices from file")
+    (upload-measurement-file-in-pages filename
+                                      (entity-devices-metadata entity-id username password)
+                                      username
+                                      password)))
+
 ;; async posts stats:
 ;; - 3200 writes/seq in cass
 ;; - 10000 rows (* 58 devices) in 9'20"
-;; - 70000 rows (* 58 devices) in 
+;; - 70000 rows (* 58 devices) in 54'
 ;;
-;; TODO
-
-
-;;;;
+;; project_id: cb3062b688dfb22ff679ef1e5a5daedcb8906a8a
+;; entities:
+;; | D407T | ce8bccdfc14a678783c52993d2effde4c269a14d |
+;; | D408T | 319e295e57d3aca5ac470ae9849fc7f1b032d2a3 |
+;; | D409T | bcbcb08149a7e3997e313c4fcbeccf11eefc0fb8 |
+;; | D410T | 4dfcf016f272dadc9dd0e341e70dddfa3a06fbb3 |
+;; | D411T | c6d88517583a78eda47dd95b122b273da954c06a |
+;; | D412T | c47eaacade11a52f3efb8885b82643702da06827 |
+;; | D413T | bed0558be9dfcc8b58b9d60487ea87d3130960c6 | missing file - ignore me
+;; | D414T | f2c6e28b7921d28ab899606eb152af94878ab045 |
+;; | D416T | 37ec68ec6a56076f6172204adb09cf912f9be665 |
+;; | D417T | 40482aa9e73345ca68d2d2832995d46643c4457d |
+;; | D418ALLPHASE2 | 7ea2ed2bd700f90b27388ff6c39480d4f37178f6 |
+;; | D418T | 4caec469c74738446d42a485c470ec86662b6835 |
+;; | D419TwithT | 87b7223eec106d4498932bc0e95b4ba6b1c35357 |
+;; | D421TwithT | a44c1282f953ee160c09d780c24832ecf42a398f |
+;; | D422ALLPHASE2 | 0c637447578d466f02a09089f3ca347e77d9becc | incomplete
+;; | D422T | 0fe73af0ff7d83b6fc5c32d9b9c12e5eaad51308 |
+;; | D423T | aa758323268cffeec843f3feb5ce6dd2b09cbad7 |
+;; | D424T | dacdff34b73d0bc2aaf07cfb64b0ee8dc7ee7722 |
+;; | D426T | bc9f370d63f7980939ca3c997b4fb89b5c5b00d8 | incomplete
+;; | D427T | 7835027a100d8c8fd32ab37235a60c4153c0e31a |
+;; | D428T | 28b25267f3c4b537ea019400628cfffe8d4c7d8f |
+;; | D430T | 5a181bca53fcf6aefa2a7c789615c57b331cc320 |
+;; | D431T | 123dbc6ff9717d2e293e873fa4c9dec2b9687be8 | 
+;;
+;; Process:
+;; (add-entity) ; not working
+;; (add-devices entityid "alice" "password")
+;; (time (upload-measurement-file-in-pages  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D408T_head.csv" (entity-devices-memoized "4dfcf016f272dadc9dd0e341e70dddfa3a06fbb3" "alice" "password") "alice" "password")) 
+;;
+;; TODO: cleanup D410 (it received data for D409)
