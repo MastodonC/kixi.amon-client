@@ -73,29 +73,34 @@
    ])
 
 
-(defn devices-metadata []
+(def devices-metadata
   (drop 1 column-headings))
 
-
+(defn extract-id-part [url section]
+  (nth (re-find (re-pattern (str section "/(.+)$"))
+                url)
+       1))
+;; FIXME this should return the devices metadata in the same fashion as entity-devices-metadata
 (defn add-devices [entity username password]
   "Adds all devices specified in devices-metadata for a given entity"
-  (map (fn [d]
-          (client/add-device
-           {:body (merge {:privacy "private" :entityId entity} d)
-            :username username :password password}))
-        (devices-metadata)))
+  (doseq [device-metadata devices-metadata]
+    (->
+     (client/add-device
+      {:body (merge {:privacy "private" :entityId entity} device-metadata)
+       :username username :password password})
+     :body
+     (json/read-str :key-fn keyword)
+     :location
+     (extract-id-part "devices")
+     (->> (println "\tdevice: ")))))
 
-;; FIXME this should return the devices metadata in the same fashion as entity-devices-metadata
-(defn add-entity-and-devices [property-code project-id username password]
-  (let [entity (nth (re-find #"ies/(.+)$"
-                             (->
-                              (client/add-entity {:body {:propertyCode property-code :projectId project-id} :username username :password password })
-                              :body
-                              (json/read-str :key-fn keyword)
-                              :location))
-                    1)]
-    (add-devices entity username password)
-    entity))
+(defn add-entity [property-code project-id username password]
+  (->
+   (client/add-entity {:body {:propertyCode property-code :projectId project-id} :username username :password password })
+   :body
+   (json/read-str :key-fn keyword)
+   :location
+   (extract-id-part "entities")))
 
 (defn device-id
   "Extracts device identifier maps from the devices with metadata aggregate"
@@ -105,7 +110,7 @@
 (defn entity-devices
   "Retrieve the devices for a given entity"
   [entity username password]
-  (let [device-ids (:deviceIds (client/entity {:entity entity
+  (let [device-ids (:device-ids (client/entity {:entity entity
                                                 :username username
                                                 :password password }))]
     (map (fn [id] (client/device {:entity entity
@@ -133,7 +138,7 @@
                     (fn [d] (= (:description m) (:description d)))
                     devices)))
        :entity entity))
-   (devices-metadata))))
+   devices-metadata)))
 (def entity-devices-memoized (memoize entity-devices-metadata))
 
 (defn device-with-measurements
@@ -178,10 +183,9 @@
 
 
 (defn add-measurements-page [measurements username password]
-  "asynchronously POST the measurements for one page, then wait for the threads to join again"
+  "asynchronously POST the measurements for one page (one request for each device), then wait for the threads to join again"
   (let [c (chan)
         res (atom [])
-        _ (println "Adding page...")
         pagesize (count measurements)]
     (doseq [m measurements]
       (-> (merge m {:username username :password password })
@@ -191,20 +195,29 @@
       (swap! res conj (<!! c))
       @res)))
 
+(defmacro doseq-indexed [index-sym [item-sym coll] & body]
+  `(let [idx-atom# (atom 0)]
+     (doseq [~item-sym ~coll]
+       (let [~index-sym (deref idx-atom#)]
+         ~@body
+         (swap! idx-atom# inc)))))
 
 (defn upload-measurement-file-in-pages [filename devices username password]
   "Paginates through the file and uploads the processed pages"
-  (doseq [page (lazy-paginate-csv filename)]
-    (add-measurements-page (process-measurements-page page devices) username password)
-    (println "\t... page added")
-))
+  (doseq-indexed idx [page (lazy-paginate-csv filename)]
+    (print ">>>>> adding page: " idx " ... ")(flush)
+    (let [doctored-page (process-measurements-page page devices)]
+      (time (add-measurements-page doctored-page username password)))))
 
 (defn add-entity-and-upload-measurements [filename project-id username password]
   "Create the entity and its devices, and uploads the measurements from the file"
   (let [property-code (nth (re-find #"/([^\/]+)\.csv$" filename) 1)
-        _ (println "Creating the entity for " property-code)
-        entity-id (add-entity-and-devices property-code project-id username password)
-        _ (println "Created entity with id " entity-id)]
+        _ (println "Creating the entity for " property-code "...")
+        entity-id (add-entity property-code project-id username password)
+        _ (println "Created entity with id " entity-id)
+        ]
+    (add-devices entity-id username password)
+    (println "Created devices for entity")
     (println "Adding measurements for " property-code " devices from file")
     (upload-measurement-file-in-pages filename
                                       (entity-devices-metadata entity-id username password)
@@ -240,7 +253,17 @@
 ;; | D427T | 7835027a100d8c8fd32ab37235a60c4153c0e31a |
 ;; | D428T | 28b25267f3c4b537ea019400628cfffe8d4c7d8f |
 ;; | D430T | 5a181bca53fcf6aefa2a7c789615c57b331cc320 |
-;; | D431T | 123dbc6ff9717d2e293e873fa4c9dec2b9687be8 | 
+;; | D431T | 123dbc6ff9717d2e293e873fa4c9dec2b9687be8 |
+;; | D432T | 5d12bf8e3022cf3e502cc7ec6014e19640e81e5e |
+;; | D433T | 32dfb8893ef476a15d4cf1bdf6c75cfe0dd6e4a5 |
+;; | D434T | ok
+;; | D435T | ok
+;; | D437T | ok
+;; | D438T | ok
+;; | D439T | ok
+;; | D440T | ok
+;; | D441T | ok
+;; | D442T | ok
 ;;
 ;; Process:
 ;; (add-entity) ; not working
