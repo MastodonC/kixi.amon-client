@@ -272,10 +272,9 @@
 ;; | D461T | 95713b93314ef8d2a96c7ef0eabb0a83c8c15f94 |
 ;; | D462T | 4778c4ceed86efc9d26e73a4d6ef230a9c0dd09f |
 ;; | D463T | 62e46abd1f346f92e87b88233d9ae76b5037ac73 |
+;; | D465T | 7c7c816cbd20992ee68eb18b219d87acb397e493 |
 ;;
 ;; Process:
-;; (add-entity) ; not working
-;; (add-devices entityid "alice" "password")
-;; (time (upload-measurement-file-in-pages  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D408T_head.csv" (entity-devices-memoized "4dfcf016f272dadc9dd0e341e70dddfa3a06fbb3" "alice" "password") "alice" "password")) 
+;; (add-entity-and-upload-measurements  "/Users/bru/Code/mastodonC/kixi.amon-client/data/embed_csv/heat_pump_data/D465T.csv" "cb3062b688dfb22ff679ef1e5a5daedcb8906a8a" "alice" "password")
 ;;
 ;; TODO: cleanup D410 (it received data for D409)
