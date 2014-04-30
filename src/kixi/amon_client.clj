@@ -1,24 +1,31 @@
 (ns kixi.amon-client
   (:require [clojure.data.json :as json]
             [org.httpkit.client :as http]
-            [clojure.core.async :refer [chan >! <! go <!!]]))
+            [clojure.core.async :refer [chan >! <! go <!!]]
+            [schema.core :as s]
+            [clojure.tools.logging :as log]
+            [clj-time.format :as tf]))
 
 ;;
 ;; low level GET & POST
 ;;
 
-(defn get-body [resp]
-  (json/read-str (:body resp)
-                 :key-fn keyword))
+(defn get-body [{:keys [body] :as resp}]
+  (try 
+    (json/read-str body
+                   :key-fn keyword)
+    (catch Exception e
+      (log/errorf e "Caught an exception parsing the body: %s" body))))
 
 (defn print-body [resp]
   (println (get-body resp)))
 
 (defn http-options [username password]
   {:basic-auth [username password]
-                    :accept :json
-                    :content-type :json
-                    :keepalive 60000})
+   :headers {"Accept" "application/json"}
+   :accept :json
+   :content-type :json
+   :keepalive 60000})
 
 (defn async-get [url options]
   (http/get url options))
@@ -33,8 +40,7 @@
   ([url username password]
      (get-body @(async-get url (http-options username password))))
   ([url query username password]
-     (get-body @(async-get url (assoc (http-options username password) :query-params query))))
-)
+     (get-body @(async-get url (assoc (http-options username password) :query-params query)))))
 
 (defn post-data
   "POST a JSON string to a given URL protected by basic HTTP Auth"
@@ -59,6 +65,10 @@
 
 ;; (def api-url "https://metering-api-live.amee.com/3") ; old url
 (def api-url "http://kixi-production-1162624566.us-west-2.elb.amazonaws.com/4") ; kixi url
+(defn project-url [projectId]
+  (format "%s/projects/%s" api-url projectId))
+(defn project-entities-url [projectId]
+  (format "%s/projects/%s/properties/" api-url projectId))
 (def entities-url
   (format "%s/entities/" api-url))
 (defn entity-url [entity]
@@ -72,21 +82,84 @@
 
 
 ;;
+;; Types
+;;
+
+(def Programme
+  {:name s/Str})
+
+(def Project
+  {:programmeId s/Str
+   :name s/Str})
+
+(def Measurement
+  {:type s/Str
+   :timestamp s/Str
+   (s/optional-key :value) (s/either s/Str s/Num)
+   (s/optional-key :error) s/Str})
+
+(def Measurements
+  {:measurements [Measurement]})
+
+(def Device
+  {(s/optional-key :deviceId) s/Str
+   :entityId s/Str
+   (s/optional-key :parentId) s/Str
+   (s/optional-key :description) s/Str
+   (s/optional-key :meteringPointId) s/Str
+   :privacy (s/enum "private" "public")
+   (s/optional-key :location) {(s/optional-key :name) s/Str
+                               (s/optional-key :latitude) (s/either s/Str s/Num)
+                               (s/optional-key :longitude) (s/either s/Str s/Num)}
+   (s/optional-key :metadata) {s/Keyword s/Any}
+   (s/optional-key :readings) [{:type s/Str
+                                (s/optional-key :unit) s/Str
+                                (s/optional-key :resolution) (s/either s/Str s/Num)
+                                (s/optional-key :accuracy) (s/either s/Str s/Num)
+                                :period (s/enum "INSTANT" "CUMULATIVE" "PULSE")
+                                (s/optional-key :min) (s/either s/Str s/Num)
+                                (s/optional-key :max) (s/either s/Str s/Num)
+                                (s/optional-key :correction) s/Bool
+                                (s/optional-key :correctedUnit) s/Str
+                                (s/optional-key :correctionFactor) (s/either s/Str s/Num)
+                                (s/optional-key :CorrectionFactorBreakdown) s/Str}]
+   (s/optional-key :measurements) Measurements})
+
+(def Entity
+  {:projectId s/Str
+   :propertyCode s/Str
+   (s/optional-key :entityId) s/Str
+   (s/optional-key :deviceIds) [s/Str]
+   (s/optional-key :meteringPointIds) [s/Str]})
+
+;;
 ;; high level functions
 ;;
 
+;; PROJECTS
+(defn project [{:keys [projectId username password] :as request}]
+  (let [url (project-url projectId)]
+    (get-data url username password)))
+
 ;; ENTITIES
+(defn entities [{:keys [projectId username password] :as request}]
+  (let [url (project-entities-url projectId)]
+    (get-data url username password)))
 
 (defn entity [{:keys [entity username password] :as request}]
   (let [url (entity-url entity)]
     (get-data url username password)))
 
 ;; FIXME this doesn't work the way the API doc describe it!
-(defn add-entity [{ :keys [body username password] :as request}]
+(defn add-entity [{:keys [body username password] :as request}]
+  (s/validate Entity body)
   (let [url entities-url]
     (post-data url body username password)))
 
 ;; DEVICES
+(defn devices [{:keys [entity username password] :as request}]
+  (let [url (entity-devices-url entity)]
+    (get-data url username password)))
 
 (defn device [{:keys [entity device username password] :as request}]
   (let [url (entity-device-url entity device)]
@@ -95,6 +168,7 @@
 (defn add-device [{:keys [body username password] :as request}]
   (let [entity (:entityId body)
         url (entity-devices-url entity)]
+    (s/validate Device body)
     (post-data url body username password)))
 
 ;; (defn add-devices [{:keys [entity metadata username password] :as request}]
@@ -110,55 +184,12 @@
         query (select-keys request [:startDate :endDate :raw])]
     (get-data url query username password)))
 
-(defn add-measurements [{:keys [entity device username password] :as request} result]
-  (let [
-        url (entity-device-measurements-url entity device)
-        body (select-keys request [:measurements])
-        ]
-    (post-data url body username password result)))
-
-(def amon-units
-  [{:description "absoluteHumidity" :unit "g/Kg" :type "Number"}
-   {:description "barometricPressure" :unit "mbar" :type "Number"}
-   {:description "co2" :unit "ppm" :type "Number"}
-   {:description "currentSignal" :unit "mA" :type "Number"}
-   {:description "electricityAmps" :unit "Amps" :type "Number"}
-   {:description "electricityConsumption" :unit "kWh" :type "Number"}
-   {:description "electricityExport" :unit "kWh" :type "Number"}
-   {:description "electricityFrequency" :unit "Hz" :type "Number"}
-   {:description "electricityGeneration" :unit "kWh" :type "Number"}
-   {:description "electricityImport" :unit "kWh" :type "Number"}
-   {:description "electricityKiloVoltAmpHours" :unit "kVArh" :type "Number"}
-   {:description "electricityKiloWatts" :unit "kW" :type "Number"}
-   {:description "electricityVolts" :unit "V" :type "Number"}
-   {:description "electricityVoltAmps" :unit "VA" :type "Number"}
-   {:description "electricityVoltAmpsReactive" :unit "VAr" :type "Number"}
-   {:description "flowRateAir" :unit "m^3/h" :type "Number"}
-   {:description "flowRateLiquid" :unit "Ls^-1" :type "Number"}
-   {:description "gasConsumption" :unit "m^3, ft^3,kWh" :type "Number"}
-   {:description "heatConsumption" :unit "kWh" :type "Number"}
-   {:description "heatExport" :unit "kWh" :type "Number"}
-   {:description "heatGeneration" :unit "kWh" :type "Number"}
-   {:description "heatImport" :unit "kWh" :type "Number"}
-   {:description "heatTransferCoefficient" :unit "W/m^2.K" :type "Number"}
-   {:description "liquidFlowRate" :unit "Litres/5min" :type "Number"}
-   {:description "oilConsumption" :unit "m^3, ft^3,kWh" :type "Number"}
-   {:description "powerFactor" :unit "" :type "Number (0-1)"}
-   {:description "pulseCount" :unit "" :type "Number"}
-   {:description "relativeHumidity" :unit "%RH" :type "Number"}
-   {:description "relativeHumidity" :unit "wm-2" :type "Number"}
-   {:description "solarRadiation" :unit "W/m^2" :type "Number"}
-   {:description "status" :unit "" :type "Number (0/1)"}
-   {:description "temperatureAir" :unit "C" :type "Number"}
-   {:description "temperatureAmbient" :unit "C" :type "Number"}
-   {:description "temperatureFluid" :unit "C" :type "Number"}
-   {:description "temperatureGround" :unit "C" :type "Number"}
-   {:description "temperatureRadiant" :unit "C" :type "Number"}
-   {:description "temperatureSurface" :unit "C" :type "Number"}
-   {:description "thermalEnergy" :unit "kWhth" :type "Number"}
-   {:description "time" :unit "millisecs" :type "Number"}
-   {:description "voltageSignal" :unit "mV" :type "Number"}
-   {:description "waterConsumption" :unit "L" :type "Number"}
-   {:description "windDirection" :unit "degrees" :type "Number"}
-   {:description "windSpeed" :unit "ms^-1" :type "Number"}
-   ])
+(defn add-measurements
+  ([{:keys [entity device measurements username password] :as request} result]
+     (let [url (entity-device-measurements-url entity device)]
+       (s/validate Measurements measurements)
+       (post-data url measurements username password result)))
+  ([{:keys [entity device measurements username password] :as request}]
+     (let [url (entity-device-measurements-url entity device)]
+       (s/validate Measurements measurements)
+       (post-data url measurements username password))))
