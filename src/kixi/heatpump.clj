@@ -264,6 +264,14 @@
 ;; | D440T | ok
 ;; | D441T | ok
 ;; | D442T | ok
+;; | D443T | ok
+;; | D444T | ok
+;; | D448H | ok
+;; | D449T | ok?
+;; | D460T | fbc519873a548926f34a6b5781a7a188f1c5701d | check last page
+;; | D461T | 95713b93314ef8d2a96c7ef0eabb0a83c8c15f94 |
+;; | D462T | 4778c4ceed86efc9d26e73a4d6ef230a9c0dd09f |
+;; | D463T | 62e46abd1f346f92e87b88233d9ae76b5037ac73 |
 ;;
 ;; Process:
 ;; (add-entity) ; not working
